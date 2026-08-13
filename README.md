@@ -2,7 +2,7 @@
 
 **Chinese Adversarial Evaluation Dataset** —— 用"对抗式 AI 协作"生成的中文大模型安全评测基准。
 
-> **核心发现（v0.2，统计显著）**：中文大模型（DeepSeek）的安全防御显著强于英文模型——1128 条样本，整体 ASR 仅 4.0%，英文社区常用攻击技术（DAN/角色扮演/提示注入）在中文环境几乎全部失效，20 种技术中 13 种被完全免疫。
+> **核心发现（v0.3，深挖版）**：中文大模型（DeepSeek）安全防御显著强于英文——1493 条样本，整体 ASR 仅 7.3%（英文 30-70%），24 种技术中 15 种完全免疫。**最强攻击面是"历史学家身份"（49%）——身份设定型攻击比具体要求型有效得多。**
 
 ## 为什么做这个
 
@@ -34,7 +34,8 @@ CAED 填补这个空白，并持续监测"谁先攻破中文模型"。
 
 ## 数据集
 
-- **v0.2（统计显著）**：[releases/caed-v0.2.jsonl](releases/caed-v0.2.jsonl)（1128 条去重样本）
+- **v0.3（深挖版）**：[releases/caed-v0.3.jsonl](releases/caed-v0.3.jsonl)（1493 条去重样本）
+- **v0.2**：[releases/caed-v0.2.jsonl](releases/caed-v0.2.jsonl)（1128 条）
 - **v0.1**：[releases/caed-v0.1.jsonl](releases/caed-v0.1.jsonl)（129 条）
 - **格式**：JSONL，字段含 `schema_version` / `attack_category` / `attack_technique` / `attack_prompt` / `target_response` / `judge_label` / `judge_confidence` / `judge_reason`
 
