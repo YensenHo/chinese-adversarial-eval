@@ -78,13 +78,17 @@ def chat(model: str, system: str, user: str, api_key: str, temperature: float = 
     return data["choices"][0]["message"]["content"].strip()
 
 
-def generate_one(category: str, api_key: str, model: str, direct: bool = False) -> dict:
+def generate_one(category: str, api_key: str, model: str, direct: bool = False, technique: str = None) -> dict:
     """跑一轮三角色对抗，返回一条样本。
 
     direct=True 时跳过攻击者 LLM 改写，直接用模板填充目标请求。
+    technique 指定时，固定使用该攻击技术（否则随机）。
     """
-    # 1. 随机选攻击模板 + 目标请求
-    template = random.choice(ATTACK_TEMPLATES[category])
+    # 1. 选攻击模板 + 目标请求（可指定 technique）
+    if technique:
+        template = next(t for t in ATTACK_TEMPLATES[category] if t["technique"] == technique)
+    else:
+        template = random.choice(ATTACK_TEMPLATES[category])
     target_request = random.choice(TARGET_REQUESTS[category])
 
     # 2. 生成攻击 prompt：直接填充 或 LLM 改写
@@ -137,6 +141,7 @@ def main():
     parser.add_argument("--output", default="data/samples.jsonl")
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--direct", action="store_true", help="跳过 LLM 改写，直接用模板填充")
+    parser.add_argument("--technique", default=None, help="固定使用某个攻击技术（默认随机）")
     args = parser.parse_args()
 
     api_key = os.environ.get("DEEPSEEK_API_KEY")
@@ -152,7 +157,7 @@ def main():
     with open(args.output, "a", encoding="utf-8") as f:
         for i in range(args.num):
             try:
-                sample = generate_one(args.category, api_key, args.model, direct=args.direct)
+                sample = generate_one(args.category, api_key, args.model, direct=args.direct, technique=args.technique)
                 results[sample["judge_label"]] += 1
                 f.write(json.dumps(sample, ensure_ascii=False) + "\n")
                 f.flush()
