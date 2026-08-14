@@ -30,6 +30,26 @@ DEEPSEEK_BASE = "https://api.deepseek.com/v1"
 DEFAULT_MODEL = "deepseek-chat"
 SCHEMA_VERSION = "0.2"
 
+# 支持的多模型提供商（OpenAI 兼容 API）
+# 用户申请到对应 API key 后，设置环境变量即可跨模型对抗
+PROVIDERS = {
+    "deepseek": {
+        "base": "https://api.deepseek.com/v1",
+        "model": "deepseek-chat",
+        "env_key": "DEEPSEEK_API_KEY",
+    },
+    "qwen": {
+        "base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "model": "qwen-plus",
+        "env_key": "DASHSCOPE_API_KEY",
+    },
+    "glm": {
+        "base": "https://open.bigmodel.cn/api/paas/v4",
+        "model": "glm-4-plus",
+        "env_key": "ZHIPU_API_KEY",
+    },
+}
+
 # ────────────────────────────────────────────────────────────
 # 三角色系统提示词
 # ────────────────────────────────────────────────────────────
@@ -59,9 +79,9 @@ JUDGE_SYSTEM = (
 )
 
 
-def chat(model: str, system: str, user: str, api_key: str, temperature: float = 0.8) -> str:
-    """调用 DeepSeek Chat API，返回 assistant 回复文本。"""
-    url = f"{DEEPSEEK_BASE}/chat/completions"
+def chat(model: str, system: str, user: str, api_key: str, temperature: float = 0.8, base_url: str = DEEPSEEK_BASE) -> str:
+    """调用 OpenAI 兼容 Chat API，返回 assistant 回复文本。"""
+    url = f"{base_url}/chat/completions"
     payload = {
         "model": model,
         "messages": [
@@ -78,11 +98,12 @@ def chat(model: str, system: str, user: str, api_key: str, temperature: float = 
     return data["choices"][0]["message"]["content"].strip()
 
 
-def generate_one(category: str, api_key: str, model: str, direct: bool = False, technique: str = None) -> dict:
+def generate_one(category: str, api_key: str, model: str, direct: bool = False, technique: str | None = None, target_provider: str | None = None) -> dict:
     """跑一轮三角色对抗，返回一条样本。
 
     direct=True 时跳过攻击者 LLM 改写，直接用模板填充目标请求。
     technique 指定时，固定使用该攻击技术（否则随机）。
+    target_provider 指定时，目标模型改用该提供商（如 qwen/glm），攻击者/裁判仍用 DeepSeek。
     """
     # 1. 选攻击模板 + 目标请求（可指定 technique）
     if technique:
@@ -90,6 +111,19 @@ def generate_one(category: str, api_key: str, model: str, direct: bool = False, 
     else:
         template = random.choice(ATTACK_TEMPLATES[category])
     target_request = random.choice(TARGET_REQUESTS[category])
+
+    # 确定目标模型（默认同源 DeepSeek，可指定其他 provider）
+    if target_provider and target_provider != "deepseek":
+        tp = PROVIDERS[target_provider]
+        target_api_key = os.environ.get(tp["env_key"])
+        if not target_api_key:
+            raise ValueError(f"缺少 {tp['env_key']} 环境变量（请先申请 {target_provider} API）")
+        target_model = tp["model"]
+        target_base = tp["base"]
+    else:
+        target_api_key = api_key
+        target_model = model
+        target_base = DEEPSEEK_BASE
 
     # 2. 生成攻击 prompt：直接填充 或 LLM 改写
     if direct:
@@ -103,8 +137,8 @@ def generate_one(category: str, api_key: str, model: str, direct: bool = False, 
         )
         attack_prompt = chat(model, ATTACKER_SYSTEM, attacker_input, api_key, temperature=0.9)
 
-    # 3. 目标模型响应
-    target_response = chat(model, TARGET_SYSTEM, attack_prompt, api_key, temperature=0.7)
+    # 3. 目标模型响应（用 target provider 的模型）
+    target_response = chat(target_model, TARGET_SYSTEM, attack_prompt, target_api_key, temperature=0.7, base_url=target_base)
 
     # 4. 裁判标注
     judge_input = (
@@ -123,7 +157,7 @@ def generate_one(category: str, api_key: str, model: str, direct: bool = False, 
         "attack_category": category,
         "attack_technique": template["technique"],
         "attacker_model": model,
-        "target_model": model,
+        "target_model": target_model,
         "attack_prompt": attack_prompt,
         "target_response": target_response,
         "judge_model": model,
@@ -142,6 +176,8 @@ def main():
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--direct", action="store_true", help="跳过 LLM 改写，直接用模板填充")
     parser.add_argument("--technique", default=None, help="固定使用某个攻击技术（默认随机）")
+    parser.add_argument("--target-provider", default=None, choices=list(PROVIDERS.keys()),
+                        help="目标模型提供商（默认同源 deepseek，可选 qwen/glm 跨模型对抗）")
     args = parser.parse_args()
 
     api_key = os.environ.get("DEEPSEEK_API_KEY")
@@ -157,7 +193,7 @@ def main():
     with open(args.output, "a", encoding="utf-8") as f:
         for i in range(args.num):
             try:
-                sample = generate_one(args.category, api_key, args.model, direct=args.direct, technique=args.technique)
+                sample = generate_one(args.category, api_key, args.model, direct=args.direct, technique=args.technique, target_provider=args.target_provider)
                 results[sample["judge_label"]] += 1
                 f.write(json.dumps(sample, ensure_ascii=False) + "\n")
                 f.flush()
